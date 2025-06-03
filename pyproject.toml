@@ -1,0 +1,17 @@
+[project]
+name = "aiogram-telegram-bot-for-async-django-ecommerce-platform"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "aiogram[i18n]>=3.20.0.post0",
+    "babel>=2.13.1",
+    "pydantic-settings>=2.9.1",
+    "redis>=6.2.0",
+]
+
+[dependency-groups]
+dev = [
+    "black>=25.1.0",
+]
