@@ -9,10 +9,11 @@ class IsStaff(BaseFilter):
 
     async def __call__(self, obj, **kwargs) -> bool:
         if isinstance(obj, Message):
-            user_id = obj.from_user.id
+            telegram_id = obj.from_user.id
         elif isinstance(obj, CallbackQuery):
-            user_id = obj.from_user.id
+            telegram_id = obj.from_user.id
         else:
+            print('IsStaff Filter: Unsupported object type', type(obj))
             return False
-
-        return await AuthClient.is_staff(str(user_id))
+        print('IsStaff Filter ', telegram_id)
+        return await AuthClient.is_staff(str(telegram_id))

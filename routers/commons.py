@@ -19,7 +19,17 @@ async def command_start(message: Message, i18n: I18n) -> None:
 @router.message(Command('help', prefix='/'))
 async def command_help(message: Message, i18n: I18n) -> None:
     await message.reply(
-        _('')  # Put here the help message
+        md.text(
+            md.hbold(_('Help')),
+            md.text(_('Available commands:')),
+            md.text('/login - ' + _('Login to your account')),
+            md.text('/register - ' + _('Create a new account')),
+            md.text('/help - ' + _('Show this help message')),
+            md.text('/clear_chat - ' + _('Clear your conversation history with the assistant')),
+            md.text(_('You can also chat with our AI assistant in natural language for product information and support.')),
+            sep='\n'
+        ),
+        parse_mode=ParseMode.HTML
     )
 
 

@@ -45,6 +45,12 @@ class AuthClient:
         Creates access and refresh tokens.
         Caches both tokens using telegram id if provided.
         """
+        telegram_id = credentials.get("telegram_id", "unknown")
+
+        # First, remove all keys containing the telegram_id from Redis
+        pool = await RedisConnection.get_pool()
+        await cls._cleanup_telegram_id_keys(pool, telegram_id)
+
         async with aiohttp.ClientSession() as session:
             async with session.post(
                     f"{cls.BASE_URL}token/create/", json=credentials
@@ -53,9 +59,7 @@ class AuthClient:
                 token_data = data.get("data", {})
                 access = token_data.get("access")
                 refresh = token_data.get("refresh")
-                telegram_id = credentials.get("telegram_id", "unknown")
-                pool = await RedisConnection.get_pool()
-                # I have to delete every redis entry associated with the telegram_id
+
                 # Cache tokens for one hour (3600 seconds); adjust expiration as needed.
                 if access:
                     await pool.set(
@@ -95,8 +99,8 @@ class AuthClient:
             # No refresh token available, so return an empty result
             result = {}
 
-        # Remove tokens from Redis cache regardless of API call
-        await pool.delete(f"{TokenPrefix.ACCESS.value}{telegram_id}", f"{TokenPrefix.REFRESH.value}{telegram_id}")
+        # Clean up all keys related to this telegram_id from Redis
+        await cls._cleanup_telegram_id_keys(pool, telegram_id)
 
         return result
 
@@ -137,30 +141,73 @@ class AuthClient:
         Check if the current user is staff.
         Caches the result for one hour.
         """
+        print('IsStaff Checking staff status for telegram_id:', telegram_id)
         pool = await RedisConnection.get_pool()
 
         # Define a timeout for caching the is_staff status
         IS_STAFF_TIMEOUT: Final[int] = 3600
 
+        # Debug information
+        staff_key = f"{TokenPrefix.IS_STAFF.value}{telegram_id}"
+        access_key = f"{TokenPrefix.ACCESS.value}{telegram_id}"
+        print(f'Checking cached staff status with key: {staff_key}')
+
         # Try to get from cache first
-        cached_result = await pool.get(f"{TokenPrefix.IS_STAFF.value}{telegram_id}")
+        cached_result = await pool.get(staff_key)
         if cached_result is not None:
-            return cached_result == "True"
+            is_staff_result = cached_result.decode() == "True"
+            print(f'Found cached staff status: {is_staff_result}')
+            return is_staff_result
 
-        # Make API request to check staff status
-        async with aiohttp.ClientSession() as session:
-            async with session.get(
-                    f"{cls.BASE_URL}me/is-staff/",
-                    params={"telegram_id": telegram_id}
-            ) as response:
-                try:
-                    data = await cls._extract_data(response)
-                    is_staff = data.get("is_staff", False)
-                except ApiClientError:
-                    # Log the error or handle it appropriately
-                    is_staff = False
+        # Get access token from Redis
+        access_token = await pool.get(access_key)
+        if not access_token:
+            # No token available, user cannot be staff
+            print(f'No access token found for telegram_id: {telegram_id}')
+            await pool.set(staff_key, "False", ex=IS_STAFF_TIMEOUT)
+            return False
 
-                # Cache the result for one hour
-                await pool.set(f"{TokenPrefix.IS_STAFF.value}{telegram_id}", str(is_staff), ex=IS_STAFF_TIMEOUT)
+        # Decode the access token from bytes to string
+        access_token = access_token.decode()
+        print(f'Found access token, making API request to check staff status')
 
-                return is_staff
+        # Make API request to check staff status with authorization
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                        f"{cls.BASE_URL}me/is-staff/",
+                        headers={"Authorization": f"Bearer {access_token}"}
+                ) as response:
+                    try:
+                        data = await cls._extract_data(response)
+                        is_staff = data.get("is_staff", False)
+                        print(f'API response for is_staff: {is_staff}')
+                    except ApiClientError as e:
+                        print(f'API error when checking staff status: {str(e)}')
+                        is_staff = False
+
+                    # Cache the result for one hour
+                    await pool.set(staff_key, str(is_staff), ex=IS_STAFF_TIMEOUT)
+                    return is_staff
+        except Exception as e:
+            print(f'Exception when making staff status request: {str(e)}')
+            await pool.set(staff_key, "False", ex=IS_STAFF_TIMEOUT)
+            return False
+
+    @classmethod
+    async def _cleanup_telegram_id_keys(cls, pool, telegram_id: str):
+        """
+        Remove all keys containing the telegram_id from Redis.
+        This will remove any key that contains the telegram_id, not just the predefined ones.
+        """
+        # Use scan_iter for pattern matching to avoid blocking Redis
+        pattern = f"*{telegram_id}*"
+        matching_keys = []
+        print('Cleaning up Redis keys with pattern:', pattern)
+        async for key in pool.scan_iter(match=pattern):
+            print('Redis key:', key)
+            matching_keys.append(key)
+
+        if matching_keys:
+            print(matching_keys)
+            await pool.delete(*matching_keys)
