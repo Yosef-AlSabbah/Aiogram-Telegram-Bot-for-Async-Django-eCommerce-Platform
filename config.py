@@ -39,6 +39,10 @@ class Settings(BaseSettings):
         return f"{self.USER_MANAGEMENT_API_V1}users/"
 
     @property
+    def PRODUCTSS_API_URL(self) -> str:
+        return f"{self.API_V1_URL}shop/products/"
+
+    @property
     def AUTH_API_URL(self) -> str:
         return f"{self.API_V1_URL}auth/"
 
